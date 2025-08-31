@@ -30,6 +30,7 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
     private List<String> inviteCodes;
     private int timeLimit;
     private String kickMessage;
+    private String banMessage;
 
     @Override
     public void onEnable() {
@@ -47,6 +48,8 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         timeLimit = getConfig().getInt("time-limit", 60);
         kickMessage = ChatColor.translateAlternateColorCodes('&',
                 getConfig().getString("kick-message", "&cYou must use /join <code> to play!"));
+        banMessage = ChatColor.translateAlternateColorCodes('&',
+                getConfig().getString("ban-message", "&cYou are banned for not verifying with /join <code>."));
 
         // Register events and commands
         getServer().getPluginManager().registerEvents(this, this);
@@ -113,8 +116,8 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
                                 player.kickPlayer(kickMessage);
                             case "ban" -> {
                                 Bukkit.getBanList(org.bukkit.BanList.Type.NAME)
-                                        .addBan(player.getName(), getConfig().getString("ban-message"), null, null);
-                                player.kickPlayer(getConfig().getString("ban-message"));
+                                        .addBan(player.getName(), banMessage, null, null);
+                                player.kickPlayer(banMessage);
                             }
                             default ->
                                 player.kickPlayer(kickMessage);
