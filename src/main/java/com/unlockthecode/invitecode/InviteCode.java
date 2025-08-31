@@ -2,7 +2,6 @@ package com.unlockthecode.invitecode;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -131,13 +130,5 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         }
 
         return true;
-    }
-
-    @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (args.length == 1) {
-            return inviteCodes;
-        }
-        return Collections.emptyList();
     }
 }
