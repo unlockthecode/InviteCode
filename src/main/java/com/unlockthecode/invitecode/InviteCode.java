@@ -1,6 +1,13 @@
 package com.unlockthecode.invitecode;
 
-import org.bukkit.Bukkit;
+import java.io.File;
+import java.io.IOException;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -14,10 +21,6 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.*;
-
 public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
 
     private Set<UUID> verifiedPlayers = new HashSet<>();
@@ -30,12 +33,22 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
 
     @Override
     public void onEnable() {
+        // Make sure plugin folder exists
+        if (!getDataFolder().exists()) {
+            getDataFolder().mkdirs();
+        }
+
+        // Load verified players
+        loadVerified();
+
+        // Load config
         saveDefaultConfig();
         inviteCodes = getConfig().getStringList("invite-codes");
         timeLimit = getConfig().getInt("time-limit", 60);
-        kickMessage = ChatColor.translateAlternateColorCodes('&', getConfig().getString("kick-message", "&cYou must use /join <code> to play!"));
+        kickMessage = ChatColor.translateAlternateColorCodes('&',
+                getConfig().getString("kick-message", "&cYou must use /join <code> to play!"));
 
-        loadVerified();
+        // Register events and commands
         getServer().getPluginManager().registerEvents(this, this);
         getCommand("join").setExecutor(this);
     }
@@ -47,6 +60,8 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
 
     private void loadVerified() {
         verifiedFile = new File(getDataFolder(), "verified.yml");
+
+        // Create file if it doesn’t exist
         if (!verifiedFile.exists()) {
             try {
                 verifiedFile.createNewFile();
@@ -54,15 +69,24 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
                 e.printStackTrace();
             }
         }
+
+        // Load configuration
         verifiedConfig = YamlConfiguration.loadConfiguration(verifiedFile);
+
+        // Load verified UUIDs
         if (verifiedConfig.contains("verified")) {
             for (String uuid : verifiedConfig.getStringList("verified")) {
-                verifiedPlayers.add(UUID.fromString(uuid));
+                try {
+                    verifiedPlayers.add(UUID.fromString(uuid));
+                } catch (IllegalArgumentException ignored) {
+                }
             }
         }
     }
 
     private void saveVerified() {
+        if (verifiedConfig == null) return; // prevent NullPointerException
+
         verifiedConfig.set("verified", verifiedPlayers.stream().map(UUID::toString).toList());
         try {
             verifiedConfig.save(verifiedFile);
