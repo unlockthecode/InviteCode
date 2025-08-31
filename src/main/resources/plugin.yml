@@ -1,0 +1,9 @@
+name: InviteCode
+main: com.unlockthecode.invitecode.InviteCode
+version: 1.0
+api-version: 1.21
+commands:
+  join:
+    description: Use an invite code to join the server
+    usage: /join <code>
+    permission: invitecode.use
