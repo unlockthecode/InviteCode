@@ -82,6 +82,9 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
 
         verifiedConfig = YamlConfiguration.loadConfiguration(verifiedFile);
 
+        verifiedPlayers.clear();
+        failedAttempts.clear();
+
         if (verifiedConfig.contains("verified")) {
             for (String uuid : verifiedConfig.getStringList("verified")) {
                 try {
@@ -109,6 +112,7 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         }
 
         verifiedConfig.set("verified", verifiedPlayers.stream().map(UUID::toString).toList());
+        verifiedConfig.set("failed-attempts", null); // clear before saving fresh
 
         for (UUID uuid : failedAttempts.keySet()) {
             verifiedConfig.set("failed-attempts." + uuid.toString(), failedAttempts.get(uuid));
@@ -156,7 +160,6 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         }
     }
 
-    // Prevent chat for unverified players
     @EventHandler
     public void onChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
@@ -166,7 +169,6 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         }
     }
 
-    // Prevent movement for unverified players
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
@@ -181,15 +183,42 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        // Handle /join reload
-        if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
+        // No args
+        if (args.length == 0) {
+            sender.sendMessage(ChatColor.RED + "Usage: /join <code> | reload | resetattempts | reloadverified");
+            return true;
+        }
+
+        // Handle admin subcommands
+        if (args[0].equalsIgnoreCase("reload")) {
             if (!sender.isOp() && !(sender instanceof org.bukkit.command.ConsoleCommandSender)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
+                sender.sendMessage(ChatColor.RED + "You do not have permission.");
                 return true;
             }
             reloadConfig();
             loadConfigValues();
             sender.sendMessage(ChatColor.GREEN + "[InviteCode] Config reloaded successfully!");
+            return true;
+        }
+
+        if (args[0].equalsIgnoreCase("resetattempts")) {
+            if (!sender.isOp() && !(sender instanceof org.bukkit.command.ConsoleCommandSender)) {
+                sender.sendMessage(ChatColor.RED + "You do not have permission.");
+                return true;
+            }
+            failedAttempts.clear();
+            saveVerified();
+            sender.sendMessage(ChatColor.GREEN + "[InviteCode] All failed attempts have been reset.");
+            return true;
+        }
+
+        if (args[0].equalsIgnoreCase("reloadverified")) {
+            if (!sender.isOp() && !(sender instanceof org.bukkit.command.ConsoleCommandSender)) {
+                sender.sendMessage(ChatColor.RED + "You do not have permission.");
+                return true;
+            }
+            loadVerified();
+            sender.sendMessage(ChatColor.GREEN + "[InviteCode] Verified players and attempts reloaded from file.");
             return true;
         }
 

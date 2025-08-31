@@ -34,6 +34,8 @@
 ```text
 /join [code]  - Verify your account using an invite code.
 /join reload  - Console / operators only, reloads config.yml.
+/join resetattempts - Reset all current sessions attempts
+/join reloadverified - Reloads the verified players list and failed attempts from verified.yml.
 ```
 
 **Notes:**
