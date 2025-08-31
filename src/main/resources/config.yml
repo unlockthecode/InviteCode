@@ -2,4 +2,6 @@ invite-codes:
   - CODE123
   - FRIENDS2024
 time-limit: 60
+punishment: "kick"  # options: kick, ban
 kick-message: "&cYou must use /join <code> to be verified!"
+ban-message: "&cYou are banned for not verifying with /join <code>."

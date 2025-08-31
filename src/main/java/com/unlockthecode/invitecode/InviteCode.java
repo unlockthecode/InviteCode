@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -84,8 +85,9 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
     }
 
     private void saveVerified() {
-        if (verifiedConfig == null) return; // prevent NullPointerException
-
+        if (verifiedConfig == null) {
+            return; // prevent NullPointerException
+        }
         verifiedConfig.set("verified", verifiedPlayers.stream().map(UUID::toString).toList());
         try {
             verifiedConfig.save(verifiedFile);
@@ -100,20 +102,35 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             player.sendMessage(ChatColor.RED + "You must verify using /join <code> within " + timeLimit + " seconds.");
 
+            String punishment = getConfig().getString("punishment", "kick").toLowerCase();
+
             new BukkitRunnable() {
                 @Override
                 public void run() {
                     if (!verifiedPlayers.contains(player.getUniqueId()) && player.isOnline()) {
-                        player.kickPlayer(kickMessage);
+                        switch (punishment) {
+                            case "kick" ->
+                                player.kickPlayer(kickMessage);
+                            case "ban" -> {
+                                Bukkit.getBanList(org.bukkit.BanList.Type.NAME)
+                                        .addBan(player.getName(), getConfig().getString("ban-message"), null, null);
+                                player.kickPlayer(getConfig().getString("ban-message"));
+                            }
+                            default ->
+                                player.kickPlayer(kickMessage);
+                        }
                     }
                 }
             }.runTaskLater(this, timeLimit * 20L);
+
         }
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player)) return true;
+        if (!(sender instanceof Player player)) {
+            return true;
+        }
 
         if (args.length != 1) {
             player.sendMessage(ChatColor.RED + "Usage: /join <code>");

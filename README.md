@@ -8,8 +8,9 @@
 
 * Enforces player verification via invite codes.
 * Configurable time limit for verification (default: 60 seconds).
+* Configurable punishment (default: kick)
 * Keeps track of verified players across server restarts.
-* Lightweight and easy to set up.
+* Lightweight and easy to set up & works on cracked/online mode.
 
 ---
 
@@ -36,5 +37,5 @@
 **Notes:**
 
 * Codes are **case-insensitive** (recommended for ease of use).
-* Players who do not join within the configured time will be automatically kicked.
+* Players who do not join within the configured time will be automatically kicked or banned (configurable).
 
