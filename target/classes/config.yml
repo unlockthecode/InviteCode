@@ -1,7 +1,11 @@
 invite-codes:
-  - CODE123
-  - FRIENDS2024
-time-limit: 60
-punishment: "kick"  # options: kick, ban
-kick-message: "&cYou must use /join <code> to be verified!"
-ban-message: "&cYou are banned for not verifying with /join <code>."
+  - abc123
+  - def456
+
+time-limit: 60 #in seconds
+max-attempts: 3 #maximum number of failed attempts before punishment
+
+punishment: ban-ip #ban, ban-ip or kick
+
+kick-message: "&cYou must use /join <code> to play!"
+ban-message: "&cYou are banned for too many failed /join attempts."
