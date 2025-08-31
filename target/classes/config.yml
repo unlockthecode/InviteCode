@@ -1,0 +1,5 @@
+invite-codes:
+  - CODE123
+  - FRIENDS2024
+time-limit: 60
+kick-message: "&cYou must use /join <code> to be verified!"
