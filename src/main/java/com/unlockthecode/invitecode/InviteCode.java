@@ -129,16 +129,15 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             player.sendMessage(ChatColor.RED + "You must verify using /join <code> within " + timeLimit + " seconds.");
 
-            String punishment = getConfig().getString("punishment", "kick").toLowerCase();
-
             new BukkitRunnable() {
                 @Override
                 public void run() {
                     if (!verifiedPlayers.contains(player.getUniqueId()) && player.isOnline()) {
-                        punish(player, punishment, kickMessage, banMessage);
+                        // Timeout reached → just kick, don’t punish
+                        player.kickPlayer(kickMessage);
                     }
                 }
-            }.runTaskLater(this, timeLimit * 20L);
+            }.runTaskLater(InviteCode.this, timeLimit * 20L);
         }
     }
 
