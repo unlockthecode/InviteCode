@@ -2,16 +2,16 @@ package com.unlockthecode.invitecode;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -31,17 +31,17 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
 
-    private final Set<UUID> verifiedPlayers = new HashSet<>();
-    private final Map<UUID, Integer> failedAttempts = new HashMap<>();
-
+    private Set<UUID> verifiedPlayers = new HashSet<>();
     private File verifiedFile;
     private FileConfiguration verifiedConfig;
 
-    private List<String> inviteCodes = Collections.emptyList();
+    private List<String> inviteCodes;
     private int timeLimit;
     private String kickMessage;
     private String banMessage;
     private int maxAttempts;
+
+    private final Map<UUID, Integer> failedAttempts = new HashMap<>();
 
     @Override
     public void onEnable() {
@@ -49,12 +49,12 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
             getDataFolder().mkdirs();
         }
 
-        // Load persistent data first
-        loadVerified();
-
-        // Load config values
+        // Load config FIRST
         saveDefaultConfig();
-        loadConfigValues(); // <-- ensures maxAttempts is set
+        loadConfigValues();
+
+        // Load verified AFTER config
+        loadVerified();
 
         // Register
         getServer().getPluginManager().registerEvents(this, this);
@@ -68,57 +68,39 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         saveVerified();
     }
 
-    /* -------------------- Config Helpers -------------------- */
     private void loadConfigValues() {
         FileConfiguration cfg = getConfig();
         inviteCodes = cfg.getStringList("invite-codes");
         timeLimit = cfg.getInt("time-limit", 60);
-        maxAttempts = cfg.getInt("max-attempts", 3); // IMPORTANT: prevents insta-ban
+
+        maxAttempts = cfg.getInt("max-attempts", 3);
+        if (maxAttempts <= 0) {
+            maxAttempts = 3;
+            getLogger().warning("max-attempts was set <= 0, defaulting to 3.");
+        }
+
         kickMessage = ChatColor.translateAlternateColorCodes('&',
                 cfg.getString("kick-message", "&cYou must use /join <code> to play!"));
         banMessage = ChatColor.translateAlternateColorCodes('&',
-                cfg.getString("ban-message", "&cYou are banned for not verifying with /join <code>."));
+                cfg.getString("ban-message", "&cYou are banned for too many failed /join attempts."));
     }
 
-    /* -------------------- Persistence -------------------- */
     private void loadVerified() {
         verifiedFile = new File(getDataFolder(), "verified.yml");
         if (!verifiedFile.exists()) {
             try {
                 verifiedFile.createNewFile();
             } catch (IOException e) {
-                getLogger().severe("Could not create verified.yml");
                 e.printStackTrace();
             }
         }
-
         verifiedConfig = YamlConfiguration.loadConfiguration(verifiedFile);
 
-        // Clear current in-memory state, then repopulate from file
         verifiedPlayers.clear();
-        failedAttempts.clear();
-
-        // Load verified list
-        List<String> list = verifiedConfig.getStringList("verified");
-        if (list != null) {
-            for (String uuid : list) {
+        if (verifiedConfig.contains("verified")) {
+            for (String uuid : verifiedConfig.getStringList("verified")) {
                 try {
                     verifiedPlayers.add(UUID.fromString(uuid));
-                } catch (IllegalArgumentException ignored) {
-                }
-            }
-        }
-
-        // Load failed-attempts map
-        if (verifiedConfig.isConfigurationSection("failed-attempts")) {
-            for (String key : Objects.requireNonNull(
-                    verifiedConfig.getConfigurationSection("failed-attempts")).getKeys(false)) {
-                try {
-                    UUID uuid = UUID.fromString(key);
-                    int attempts = verifiedConfig.getInt("failed-attempts." + key, 0);
-                    if (attempts > 0) {
-                        failedAttempts.put(uuid, attempts);
-                    }
                 } catch (IllegalArgumentException ignored) {
                 }
             }
@@ -129,26 +111,17 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         if (verifiedConfig == null) {
             return;
         }
-
-        verifiedConfig.set("verified", verifiedPlayers.stream().map(UUID::toString).toList());
-
-        // rewrite attempts section fresh
-        verifiedConfig.set("failed-attempts", null);
-        if (!failedAttempts.isEmpty()) {
-            for (Map.Entry<UUID, Integer> e : failedAttempts.entrySet()) {
-                verifiedConfig.set("failed-attempts." + e.getKey(), e.getValue());
-            }
-        }
-
+        verifiedConfig.set("verified", verifiedPlayers.stream()
+                .map(UUID::toString)
+                .collect(Collectors.toList()));
         try {
             verifiedConfig.save(verifiedFile);
         } catch (IOException e) {
-            getLogger().severe("Could not save verified.yml");
             e.printStackTrace();
         }
     }
 
-    /* -------------------- Events -------------------- */
+    // 🟢 Player Join
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
@@ -156,60 +129,23 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             player.sendMessage(ChatColor.RED + "You must verify using /join <code> within " + timeLimit + " seconds.");
 
-            final String punishment = getConfig().getString("punishment", "kick").toLowerCase();
+            String punishment = getConfig().getString("punishment", "kick").toLowerCase();
 
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    // Only punish if still unverified and online after timeLimit
                     if (!verifiedPlayers.contains(player.getUniqueId()) && player.isOnline()) {
-                        switch (punishment) {
-                            case "kick" ->
-                                player.kickPlayer(kickMessage);
-                            case "ban" -> {
-                                Bukkit.getBanList(org.bukkit.BanList.Type.NAME)
-                                        .addBan(player.getName(), banMessage, null, null);
-                                player.kickPlayer(banMessage);
-                            }
-                            case "ban-ip" -> {
-                                // WARNING with tunnels/proxies (Playit/Velocity/etc.)
-                                String ip = player.getAddress() != null
-                                        ? player.getAddress().getAddress().getHostAddress()
-                                        : null;
-                                if (ip != null) {
-                                    Bukkit.getBanList(org.bukkit.BanList.Type.IP)
-                                            .addBan(ip, banMessage, null, null);
-                                }
-                                player.kickPlayer(banMessage);
-                            }
-                            default ->
-                                player.kickPlayer(kickMessage);
-                        }
+                        punish(player, punishment, kickMessage, banMessage);
                     }
                 }
             }.runTaskLater(this, timeLimit * 20L);
         }
     }
 
-    @EventHandler
-    public void onChat(AsyncPlayerChatEvent event) {
-        Player player = event.getPlayer();
-        if (!verifiedPlayers.contains(player.getUniqueId())) {
-            event.setCancelled(true);
-            player.sendMessage(ChatColor.RED + "You cannot chat until you verify with /join <code>.");
-        }
-    }
-
+    // 🟢 Block movement
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
-        // getTo() can be null on some edge teleports/world changes
-        if (event.getTo() == null) {
-            return;
-        }
-
-        Player player = event.getPlayer();
-        if (!verifiedPlayers.contains(player.getUniqueId())) {
-            // Only block position changes; allow yaw/pitch rotation
+        if (!verifiedPlayers.contains(event.getPlayer().getUniqueId())) {
             if (event.getFrom().getX() != event.getTo().getX()
                     || event.getFrom().getY() != event.getTo().getY()
                     || event.getFrom().getZ() != event.getTo().getZ()) {
@@ -218,51 +154,47 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         }
     }
 
-    /* -------------------- Commands -------------------- */
+    // 🟢 Block chat
+    @EventHandler
+    public void onChat(AsyncPlayerChatEvent event) {
+        if (!verifiedPlayers.contains(event.getPlayer().getUniqueId())) {
+            event.getPlayer().sendMessage(ChatColor.RED + "You must verify first with /join <code>.");
+            event.setCancelled(true);
+        }
+    }
+
+    // 🟢 Command logic
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        // No args: show usage
-        if (args.length == 0) {
-            sender.sendMessage(ChatColor.RED + "Usage: /join <code> | reload | resetattempts | reloadverified");
-            return true;
-        }
 
-        // Admin subcommands (ops or console)
-        String sub = args[0].toLowerCase(Locale.ROOT);
-        if (sub.equals("reload") || sub.equals("resetattempts") || sub.equals("reloadverified")) {
-            if (!sender.isOp() && !(sender instanceof org.bukkit.command.ConsoleCommandSender)) {
-                sender.sendMessage(ChatColor.RED + "You do not have permission.");
-                return true;
-            }
-
-            switch (sub) {
-                case "reload" -> {
-                    reloadConfig();
-                    loadConfigValues();
-                    sender.sendMessage(ChatColor.GREEN + "[InviteCode] Config reloaded successfully!");
-                }
-                case "resetattempts" -> {
-                    failedAttempts.clear();
-                    saveVerified();
-                    sender.sendMessage(ChatColor.GREEN + "[InviteCode] All failed attempts have been reset.");
-                }
-                case "reloadverified" -> {
-                    loadVerified();
-                    sender.sendMessage(ChatColor.GREEN + "[InviteCode] Verified players and attempts reloaded from file.");
-                }
-            }
-            return true;
-        }
-
-        // Player verification path: /join <code>
+        // Console only
         if (!(sender instanceof Player player)) {
-            sender.sendMessage(ChatColor.RED + "Console can use: /join reload | resetattempts | reloadverified");
+            if (args.length == 1) {
+                switch (args[0].toLowerCase()) {
+                    case "reload" -> {
+                        reloadConfig();
+                        loadConfigValues();
+                        sender.sendMessage(ChatColor.GREEN + "Config reloaded.");
+                    }
+                    case "reloadverified" -> {
+                        loadVerified();
+                        sender.sendMessage(ChatColor.GREEN + "Verified list reloaded.");
+                    }
+                    case "resetattempts" -> {
+                        failedAttempts.clear();
+                        sender.sendMessage(ChatColor.GREEN + "Failed attempts cleared.");
+                    }
+                    default ->
+                        sender.sendMessage(ChatColor.RED + "Console: /join <reload|reloadverified|resetattempts>");
+                }
+            }
             return true;
         }
 
+        // Player path
         UUID uuid = player.getUniqueId();
 
-        // 🔒 Block already verified players from reusing /join
+        // Block already verified players
         if (verifiedPlayers.contains(uuid)) {
             player.sendMessage(ChatColor.YELLOW + "You are already verified!");
             return true;
@@ -275,66 +207,52 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
 
         String code = args[0];
         if (inviteCodes.contains(code)) {
-            verifiedPlayers.add(player.getUniqueId());
-            failedAttempts.remove(player.getUniqueId());
+            verifiedPlayers.add(uuid);
             saveVerified();
+            failedAttempts.remove(uuid);
             player.sendMessage(ChatColor.GREEN + "You have been verified! Welcome.");
         } else {
-            int attempts = failedAttempts.getOrDefault(player.getUniqueId(), 0) + 1;
-            failedAttempts.put(player.getUniqueId(), attempts);
-            saveVerified();
+            int attempts = failedAttempts.getOrDefault(uuid, 0) + 1;
+            failedAttempts.put(uuid, attempts);
 
-            // Safety: if config was mis-set to <=0, treat as "no punishment"
-            if (maxAttempts > 0 && attempts >= maxAttempts) {
-                final String punishment = getConfig().getString("punishment", "kick").toLowerCase(Locale.ROOT);
-                switch (punishment) {
-                    case "kick" ->
-                        player.kickPlayer(kickMessage);
-                    case "ban" -> {
-                        Bukkit.getBanList(org.bukkit.BanList.Type.NAME)
-                                .addBan(player.getName(), banMessage, null, null);
-                        player.kickPlayer(banMessage);
-                    }
-                    case "ban-ip" -> {
-                        String ip = player.getAddress() != null
-                                ? player.getAddress().getAddress().getHostAddress()
-                                : null;
-                        if (ip != null) {
-                            Bukkit.getBanList(org.bukkit.BanList.Type.IP)
-                                    .addBan(ip, banMessage, null, null);
-                        }
-                        player.kickPlayer(banMessage);
-                    }
-                    default ->
-                        player.kickPlayer(kickMessage);
-                }
+            if (attempts >= maxAttempts) {
+                String punishment = getConfig().getString("punishment", "kick").toLowerCase();
+                punish(player, punishment, kickMessage, banMessage);
             } else {
-                player.sendMessage(ChatColor.RED + "Invalid invite code! Attempts: "
+                player.sendMessage(ChatColor.RED + "Invalid code! Attempts: "
                         + attempts + "/" + maxAttempts);
             }
         }
+
         return true;
     }
 
-    /* -------------------- Tab Completion -------------------- */
+    private void punish(Player player, String punishment, String kickMsg, String banMsg) {
+        switch (punishment) {
+            case "kick" ->
+                player.kickPlayer(kickMsg);
+            case "ban" -> {
+                Bukkit.getBanList(org.bukkit.BanList.Type.NAME)
+                        .addBan(player.getName(), banMsg, null, null);
+                player.kickPlayer(banMsg);
+            }
+            case "ban-ip" -> {
+                String ip = player.getAddress().getAddress().getHostAddress();
+                Bukkit.getBanList(org.bukkit.BanList.Type.IP)
+                        .addBan(ip, banMsg, null, null);
+                player.kickPlayer(banMsg);
+            }
+            default ->
+                player.kickPlayer(kickMsg);
+        }
+    }
+
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (!command.getName().equalsIgnoreCase("join")) {
-            return Collections.emptyList();
-        }
-
-        if (args.length == 1) {
-            List<String> options = new ArrayList<>();
-            // Only show admin subs to ops/console; otherwise, suggest nothing (keep codes secret)
-            if (sender.isOp() || sender instanceof org.bukkit.command.ConsoleCommandSender) {
-                options.add("reload");
-                options.add("reloadverified");
-                options.add("resetattempts");
+        if (!(sender instanceof Player)) {
+            if (args.length == 1) {
+                return Arrays.asList("reload", "reloadverified", "resetattempts");
             }
-            // basic filtering
-            String cur = args[0].toLowerCase(Locale.ROOT);
-            options.removeIf(s -> !s.startsWith(cur));
-            return options;
         }
         return Collections.emptyList();
     }
