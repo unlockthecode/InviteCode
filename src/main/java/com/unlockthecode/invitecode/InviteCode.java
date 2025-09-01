@@ -260,6 +260,14 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
             return true;
         }
 
+        UUID uuid = player.getUniqueId();
+
+        // 🔒 Block already verified players from reusing /join
+        if (verifiedPlayers.contains(uuid)) {
+            player.sendMessage(ChatColor.YELLOW + "You are already verified!");
+            return true;
+        }
+
         if (args.length != 1) {
             player.sendMessage(ChatColor.RED + "Usage: /join <code>");
             return true;
