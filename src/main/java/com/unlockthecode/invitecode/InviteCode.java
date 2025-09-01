@@ -32,6 +32,8 @@ import org.bukkit.scheduler.BukkitRunnable;
 public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
 
     private Set<UUID> verifiedPlayers = new HashSet<>();
+    private Map<UUID, Integer> failedAttempts = new HashMap<>();
+
     private File verifiedFile;
     private FileConfiguration verifiedConfig;
 
@@ -41,22 +43,17 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
     private String banMessage;
     private int maxAttempts;
 
-    private final Map<UUID, Integer> failedAttempts = new HashMap<>();
-
     @Override
     public void onEnable() {
         if (!getDataFolder().exists()) {
             getDataFolder().mkdirs();
         }
 
-        // Load config FIRST
         saveDefaultConfig();
         loadConfigValues();
 
-        // Load verified AFTER config
         loadVerified();
 
-        // Register
         getServer().getPluginManager().registerEvents(this, this);
         Objects.requireNonNull(getCommand("join"), "Command 'join' not found in plugin.yml")
                 .setExecutor(this);
@@ -105,15 +102,36 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
                 }
             }
         }
+
+        failedAttempts.clear();
+        if (verifiedConfig.contains("failedAttempts")) {
+            for (String key : verifiedConfig.getConfigurationSection("failedAttempts").getKeys(false)) {
+                try {
+                    UUID uuid = UUID.fromString(key);
+                    int attempts = verifiedConfig.getInt("failedAttempts." + key, 0);
+                    failedAttempts.put(uuid, attempts);
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+        }
     }
 
     private void saveVerified() {
         if (verifiedConfig == null) {
             return;
         }
+
         verifiedConfig.set("verified", verifiedPlayers.stream()
                 .map(UUID::toString)
                 .collect(Collectors.toList()));
+
+        Map<String, Integer> attemptMap = failedAttempts.entrySet().stream()
+                .collect(Collectors.toMap(
+                        e -> e.getKey().toString(),
+                        Map.Entry::getValue
+                ));
+        verifiedConfig.createSection("failedAttempts", attemptMap);
+
         try {
             verifiedConfig.save(verifiedFile);
         } catch (IOException e) {
@@ -125,19 +143,26 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
 
-        if (!verifiedPlayers.contains(player.getUniqueId())) {
+        // ✅ Reset attempts if they were previously banned but are now allowed back
+        if (failedAttempts.containsKey(uuid) && !player.isBanned()) {
+            failedAttempts.remove(uuid);
+            saveVerified();
+            getLogger().info("Reset failed attempts for " + player.getName() + " (unbanned join).");
+        }
+
+        if (!verifiedPlayers.contains(uuid)) {
             player.sendMessage(ChatColor.RED + "You must verify using /join <code> within " + timeLimit + " seconds.");
 
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    if (!verifiedPlayers.contains(player.getUniqueId()) && player.isOnline()) {
-                        // Timeout reached → just kick, don’t punish
-                        player.kickPlayer(kickMessage);
+                    if (!verifiedPlayers.contains(uuid) && player.isOnline()) {
+                        player.kickPlayer(kickMessage); // timeout → just kick
                     }
                 }
-            }.runTaskLater(InviteCode.this, timeLimit * 20L);
+            }.runTaskLater(this, timeLimit * 20L);
         }
     }
 
@@ -166,7 +191,7 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
 
-        // Console only
+        // Console commands
         if (!(sender instanceof Player player)) {
             if (args.length == 1) {
                 switch (args[0].toLowerCase()) {
@@ -181,6 +206,7 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
                     }
                     case "resetattempts" -> {
                         failedAttempts.clear();
+                        saveVerified();
                         sender.sendMessage(ChatColor.GREEN + "Failed attempts cleared.");
                     }
                     default ->
@@ -193,7 +219,6 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         // Player path
         UUID uuid = player.getUniqueId();
 
-        // Block already verified players
         if (verifiedPlayers.contains(uuid)) {
             player.sendMessage(ChatColor.YELLOW + "You are already verified!");
             return true;
@@ -207,19 +232,19 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
         String code = args[0];
         if (inviteCodes.contains(code)) {
             verifiedPlayers.add(uuid);
-            saveVerified();
             failedAttempts.remove(uuid);
+            saveVerified();
             player.sendMessage(ChatColor.GREEN + "You have been verified! Welcome.");
         } else {
             int attempts = failedAttempts.getOrDefault(uuid, 0) + 1;
             failedAttempts.put(uuid, attempts);
+            saveVerified();
 
             if (attempts >= maxAttempts) {
                 String punishment = getConfig().getString("punishment", "kick").toLowerCase();
                 punish(player, punishment, kickMessage, banMessage);
             } else {
-                player.sendMessage(ChatColor.RED + "Invalid code! Attempts: "
-                        + attempts + "/" + maxAttempts);
+                player.sendMessage(ChatColor.RED + "Invalid code! Attempts: " + attempts + "/" + maxAttempts);
             }
         }
 
@@ -244,6 +269,7 @@ public class InviteCode extends JavaPlugin implements Listener, TabExecutor {
             default ->
                 player.kickPlayer(kickMsg);
         }
+        saveVerified(); // persist after punishment
     }
 
     @Override
